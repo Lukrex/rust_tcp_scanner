@@ -3,9 +3,17 @@ use std::net::{SocketAddr, TcpStream};
 use std::time::Duration;
 
 fn main() -> io::Result<()> {
-    let host = "127.0.0.1";
+    let mut input_host = String::new();
     let start_port = 1;
     let end_port = 1024;
+
+    println!("Enter IP to scan: ");
+
+    io::stdin()
+        .read_line(&mut input_host)
+        .expect("Error occurred when entering IP");
+
+    let host = input_host.trim();
 
     println!("Scanning {}:{}-{}", host, start_port, end_port);
 
@@ -13,8 +21,8 @@ fn main() -> io::Result<()> {
         //try every port
         match scan_port(host, port) {
             Ok(true) => println!("Port {} is open!", port),
-            Ok(false) => (), //if port not open, do nothing
-            Err(e) => eprint!("Scan unsuccessful on port {}: {}", port, e),
+            Ok(false) => println!("Port {} is closed...", port),
+            Err(e) => eprintln!("Scan unsuccessful on port {}: {}", port, e),
         }
     }
 
