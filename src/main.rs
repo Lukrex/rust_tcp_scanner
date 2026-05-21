@@ -1,48 +1,77 @@
 use std::io;
-use std::net::{SocketAddr, TcpStream};
+use std::net::SocketAddr;
 use std::time::Duration;
+use tokio::net::TcpStream;
+use tokio::time::timeout;
 
-fn main() -> io::Result<()> {
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut input_host = String::new();
-    let start_port = 1;
-    let end_port = 1024;
+    let mut input_port = String::new();
+    let mut input_end_port = String::new();
 
     println!("Enter IP to scan: ");
-
     io::stdin()
         .read_line(&mut input_host)
         .expect("Error occurred when entering IP");
 
-    let host = input_host.trim();
+    let host = &input_host.trim().to_string();
+
+    println!("Enter first port to scan from [1]: ");
+    io::stdin()
+        .read_line(&mut input_port)
+        .expect("Error occurred when entering first port");
+    let start_port: u16 = if input_port.trim().is_empty() {
+        1
+    } else {
+        input_port.trim().parse().unwrap_or(1)
+    };
+
+    println!("Enter last port to scan until [1024]: ");
+    io::stdin()
+        .read_line(&mut input_end_port)
+        .expect("Error occurred when entering last port");
+    let end_port: u16 = if input_end_port.trim().is_empty() {
+        1024
+    } else {
+        input_end_port.trim().parse().unwrap_or(1024)
+    };
 
     println!("Scanning {}:{}-{}", host, start_port, end_port);
 
+    let mut tasks = Vec::new();
+
     for port in start_port..=end_port {
-        //try every port
-        match scan_port(host, port) {
-            Ok(true) => println!("Port {} is open!", port),
-            Ok(false) => println!("Port {} is closed...", port),
-            Err(e) => eprintln!("Scan unsuccessful on port {}: {}", port, e),
-        }
+        let host_clone = host.clone();
+
+        let task = tokio::spawn(async move {
+            if scan_port(&host_clone, port).await {
+                println!("Port {} is open!", port);
+            }
+        });
+
+        tasks.push(task);
     }
 
+    for task in tasks {
+        let _ = task.await;
+    }
+    println!("Scan finished.");
     Ok(())
 }
 
-fn scan_port(host: &str, port: u16) -> io::Result<bool> {
-    let socket: SocketAddr = format!("{}:{}", host, port) //create target address
-        .parse()
-        .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))?;
+async fn scan_port(host: &str, port: u16) -> bool {
+    let socket: SocketAddr = match format!("{}:{}", host, port).parse() {
+        Ok(addr) => addr,
+        Err(_) => return false,
+    };
 
-    match TcpStream::connect_timeout(&socket, Duration::from_millis(1_000)) {
-        Ok(_) => Ok(true), //if conencted to address for 1 second, port open
-        Err(e) => {
-            //otherwise Error
-            match e.kind() {
-                io::ErrorKind::ConnectionRefused => Ok(false), //port closed
-                io::ErrorKind::TimedOut => Ok(false),          //timeout = closed
-                _ => Err(e),                                   //other errors
-            }
-        }
+    let connection_result =
+        timeout(Duration::from_millis(1_000), TcpStream::connect(&socket)).await;
+
+    match connection_result {
+        Ok(Ok(_stream)) => true,        //got connection before timeout
+        Ok(Err(_)) => false,            //rejected connection or network error
+        Err(_timeout_elapsed) => false, //timeout reached, no answer
     }
 }
